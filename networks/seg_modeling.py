@@ -296,6 +296,128 @@ class Fusion_Embed2(nn.Module):
         x = self.activation(x)
         return x
 
+class ModalityReconstructor_Q1(nn.Module):
+    def __init__(self, in_channels=1, base_channels=32):
+        super().__init__()
+        # 通用投影
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, base_channels, kernel_size=3, stride=2, padding=1),  # ↓ H/2
+            nn.ReLU(),
+            nn.Conv2d(base_channels, base_channels * 2, kernel_size=3, stride=2, padding=1),  # ↓ H/4
+            nn.ReLU()
+        )
+
+        self.prompt_proj1 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, padding=1)
+        self.prompt_proj2 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, padding=1)
+        self.prompt_proj3 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, padding=1)
+
+        self.fusion = nn.Sequential(
+            nn.Conv2d(base_channels * 6, base_channels * 4, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(base_channels * 4, base_channels * 2, 3, padding=1),
+        )
+
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(base_channels * 2, base_channels, 3, stride=2, padding=1, output_padding=1),  # ↑ H/2
+            nn.ReLU(),
+            nn.ConvTranspose2d(base_channels, in_channels, 3, stride=2, padding=1, output_padding=1),  # ↑ H
+            nn.Sigmoid()
+        )
+
+    def forward(self, x1, x2, x3, mode):
+        # 下采样后融合
+        if mode == [0, 1, 1]:
+            x1_ = self.prompt_proj1(F.interpolate(x1, scale_factor=0.25, mode='bilinear'))
+            x2_ = self.encoder(x2)
+            x3_ = self.encoder(x3)
+        elif mode == [1, 0, 1]:
+            x1_ = self.encoder(x1)
+            x2_ = self.prompt_proj2(F.interpolate(x2, scale_factor=0.25, mode='bilinear'))
+            x3_ = self.encoder(x3)
+        elif mode == [1, 1, 0]:
+            x1_ = self.encoder(x1)
+            x2_ = self.encoder(x2)
+            x3_ = self.prompt_proj3(F.interpolate(x3, scale_factor=0.25, mode='bilinear'))
+        else:
+            raise NotImplementedError("不支持的mode")
+
+        x_cat = torch.cat([x1_, x2_, x3_], dim=1)
+        x_fused = self.fusion(x_cat)
+        out = self.decoder(x_fused)
+        return out
+
+class ModalityReconstructor_Q2(nn.Module):
+    def __init__(self, in_channels=1, base_channels=16):
+        super().__init__()
+       # 共享编码器（对输入进行下采样）
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, base_channels, kernel_size=3, stride=2, padding=1),  # H/2
+            nn.ReLU(),
+            nn.Conv2d(base_channels, base_channels * 2, kernel_size=3, stride=2, padding=1),  # H/4
+            nn.ReLU()
+        )
+
+        # Prompt 编码器（同样下采样）
+        self.prompt_proj1 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, stride=4, padding=1)
+        self.prompt_proj2 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, stride=4, padding=1)
+        self.prompt_proj3 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, stride=4, padding=1)
+
+        # 融合模块
+        self.fusion = nn.Sequential(
+            nn.Conv2d(base_channels * 4, base_channels * 2, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(base_channels * 2, base_channels, kernel_size=3, padding=1)
+        )
+
+        # 上采样解码器
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(base_channels, base_channels // 2, kernel_size=4, stride=2, padding=1),  # H/2
+            nn.ReLU(),
+            nn.ConvTranspose2d(base_channels // 2, in_channels, kernel_size=4, stride=2, padding=1),    # H
+            nn.Sigmoid()
+        )
+
+    def forward(self, x1, x2, x3, mode):
+        if x1 is None:
+            if mode == [0, 0, 1]:
+                x2_ = self.prompt_proj2(x2)
+                x3_ = self.encoder(x3)
+            elif mode == [0, 1, 0]:
+                x2_ = self.encoder(x2)
+                x3_ = self.prompt_proj3(x3)
+            else:
+                raise ValueError(f"Unsupported mode: {mode}")
+            x_cat = torch.cat([x2_, x3_], dim=1)
+
+        elif x2 is None:
+            if mode == [1, 0, 0]:
+                x1_ = self.encoder(x1)
+                x3_ = self.prompt_proj3(x3)
+            elif mode == [0, 0, 1]:
+                x1_ = self.prompt_proj1(x1)
+                x3_ = self.encoder(x3)
+            else:
+                raise ValueError(f"Unsupported mode: {mode}")
+            x_cat = torch.cat([x1_, x3_], dim=1)
+
+        elif x3 is None:
+            if mode == [1, 0, 0]:
+                x1_ = self.encoder(x1)
+                x2_ = self.prompt_proj2(x2)
+            elif mode == [0, 1, 0]:
+                x1_ = self.prompt_proj1(x1)
+                x2_ = self.encoder(x2)
+            else:
+                raise ValueError(f"Unsupported mode: {mode}")
+            x_cat = torch.cat([x1_, x2_], dim=1)
+
+        else:
+            raise ValueError("One of x1/x2/x3 must be None.")
+
+        x_fused = self.fusion(x_cat)
+        out = self.decoder(x_fused)
+        return out
+
 class PIPO_Model(nn.Module):
     def __init__(self, config, img_size=224, self_att=False, cross_att=True, num_classes=None, normalization_sign=True):
         super(PIPO_Model, self).__init__()
@@ -311,8 +433,20 @@ class PIPO_Model(nn.Module):
             self.multihead_attn2 = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=8, dropout=0.1).cuda()
             self.multihead_attn3 = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=8, dropout=0.1).cuda()
 
+        prompt_channels = config.get('prompt_channels', 1)
+        self.prompt_input = nn.ParameterDict({
+            'M1': nn.Parameter(torch.empty(1, prompt_channels, img_size, img_size)),
+            'M2': nn.Parameter(torch.empty(1, prompt_channels, img_size, img_size)),
+            'M3': nn.Parameter(torch.empty(1, prompt_channels, img_size, img_size)),
+        })
+        self.Reconstructor_Q1 = ModalityReconstructor_Q1(in_channels=prompt_channels, base_channels=16)  # 模态重建器
+        self.Reconstructor_Q2 = ModalityReconstructor_Q2(in_channels=prompt_channels, base_channels=16)  # 模态重建器
+
         self.num_classes = num_classes  #类别数        
         self.classifier = config.classifier  #定义分类器
+
+        for key in self.prompt_input:
+            nn.init.normal_(self.prompt_input[key], mean=0.0, std=0.02)
         
         #shared_encoder
         self.transformer = U_Res2D_enc(config)
@@ -431,6 +565,43 @@ class PIPO_Model(nn.Module):
 
         return X1_fused_ft, X2_fused_ft, X3_fused_ft
 
+    def get_complete_data(self, M1, M2, M3, prompts, missing_mode):
+        prompt_M1 = prompts['M1'].cuda()
+        prompt_M2 = prompts['M2'].cuda()
+        prompt_M3 = prompts['M3'].cuda()
+        missing_mode = missing_mode.tolist()
+        M1, M2, M3 = M1.unsqueeze(dim=0), M2.unsqueeze(dim=0), M3.unsqueeze(dim=0)
+        if missing_mode == [1, 0, 0]:
+            M1 = M1
+            M2 = self.Reconstructor_Q2(M1, prompt_M2, None, missing_mode)  
+            M3 = self.Reconstructor_Q2(M1, None, prompt_M3, missing_mode)
+        elif missing_mode == [0, 1 ,0]:
+            M2 = M2
+            M1 = self.Reconstructor_Q2(prompt_M1, M2, None, missing_mode)  
+            M3 = self.Reconstructor_Q2(None, M2, prompt_M3, missing_mode)
+        elif missing_mode == [0, 0 ,1]:
+            M3 = M3
+            M1 = self.Reconstructor_Q2(prompt_M1, None, M3, missing_mode)  
+            M2 = self.Reconstructor_Q2(None, prompt_M2, M3, missing_mode)
+        elif missing_mode == [1, 1 ,0]:
+            M1 = M1 
+            M2 = M2
+            M3 = self.Reconstructor_Q1(M1, M2, prompt_M3, missing_mode) 
+        elif missing_mode == [1, 0 ,1]:
+            M1 = M1 
+            M3 = M3
+            M2 = self.Reconstructor_Q1(M1, prompt_M2, M3, missing_mode)
+        elif missing_mode == [0, 1 ,1]:
+            M2 = M2
+            M3 = M3
+            M1 = self.Reconstructor_Q1(prompt_M1, M2, M3, missing_mode)
+        else:
+            M1 = M1
+            M2 = M2
+            M3 = M3
+
+        return M1, M2, M3
+
 
     def forward(self, M1, M2, M3, mode_Type='[1,1,1]'):
         B, C, H, W = M1.shape
@@ -441,22 +612,39 @@ class PIPO_Model(nn.Module):
         masked_modalities = modalities * mode_mask
         M1, M2, M3 = masked_modalities[:, :C, :, :], masked_modalities[:, C:2*C, :, :], masked_modalities[:, 2*C:, :, :]
         
-        if M1.size()[1] == 1:
-            M1 = M1.repeat(1,3,1,1)#bSSFP
-            M2 = M2.repeat(1,3,1,1)#LGE
-            M3 = M3.repeat(1,3,1,1)#T2w
+        M1_complete, M2_complete, M3_complete = None, None, None
+        # 缺失重建
+        for i in range(0, mode_Type.size(0)):
+            m_1_temp, m_2_temp, m_3_temp = self.get_complete_data(
+                M1[i], M2[i], M3[i], self.prompt_input, mode_Type[i],
+            )
+            if M1_complete is None:
+                M1_complete = m_1_temp
+                M2_complete = m_2_temp
+                M3_complete = m_3_temp
+            else:
+                M1_complete = torch.cat((M1_complete, m_1_temp), dim=0)
+                M2_complete = torch.cat((M2_complete, m_2_temp), dim=0)
+                M3_complete = torch.cat((M3_complete, m_3_temp), dim=0)
+
+
+        if M1_complete.size()[1] == 1:
+            M1_complete = M1_complete.repeat(1,3,1,1)#bSSFP
+            M2_complete = M2_complete.repeat(1,3,1,1)#LGE
+            M3_complete = M3_complete.repeat(1,3,1,1)#T2w
         
         #shared_encoder
-        X1_share_f_avg, _, X1_share_features = self.transformer(M1) #(24,256,8,8),(24,256,1,1),[(24,1024,8,8),...,(24,64,64,64)]
-        X2_share_f_avg, _, X2_share_features = self.transformer(M2)
-        X3_share_f_avg , _, X3_share_features = self.transformer(M3)
-
-        share_f_avg = self.compute_shared_features(mode_Type, X1_share_f_avg, X2_share_f_avg, X3_share_f_avg)
- 
+        X1_share_f_avg, _, X1_share_features = self.transformer(M1_complete) #(24,256,8,8),(24,256,1,1),[(24,1024,8,8),...,(24,64,64,64)]
+        X2_share_f_avg, _, X2_share_features = self.transformer(M2_complete)
+        X3_share_f_avg, _, X3_share_features = self.transformer(M3_complete)
+       
         #specific_encoder
-        X1_spec_f_avg, X1_spec_f, X1_spec_features = self.transformer1(M1) #x在不同空洞卷积后的平均输出以及最后输出x的avgpooling、以及各层的特征
-        X2_spec_f_avg, X2_spec_f, X2_spec_features = self.transformer2(M2)
-        X3_spec_f_avg, X3_spec_f, X3_spec_features = self.transformer3(M3)
+        X1_spec_f_avg, X1_spec_f, X1_spec_features = self.transformer1(M1_complete) #x在不同空洞卷积后的平均输出以及最后输出x的avgpooling、以及各层的特征
+        X2_spec_f_avg, X2_spec_f, X2_spec_features = self.transformer2(M2_complete)
+        X3_spec_f_avg, X3_spec_f, X3_spec_features = self.transformer3(M3_complete)
+
+        mode_Type = torch.ones_like(mode_Type)
+        share_f_avg = self.compute_shared_features(mode_Type, X1_share_f_avg, X2_share_f_avg, X3_share_f_avg)
 
         share_f = torch.stack([X1_share_f_avg, X2_share_f_avg, X3_share_f_avg], dim=0)  # (3, 24, 256, 8, 8)
         spec_f = torch.stack([X1_spec_f, X2_spec_f, X3_spec_f], dim=0) # (3, 24, 256, 1, 1)，这个只用做求解域分类

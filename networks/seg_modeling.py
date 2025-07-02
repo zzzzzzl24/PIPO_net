@@ -474,7 +474,7 @@ class FeatureReconstructor_Q1(nn.Module):
         return out
 
 class PIPO_Model(nn.Module):
-    def __init__(self, config, img_size=224, self_att=False, cross_att=True, num_classes=None, normalization_sign=True):
+    def __init__(self, config, img_size=224, self_att=False, cross_att=False, num_classes=None, normalization_sign=True):
         super(PIPO_Model, self).__init__()
         #basic_config
         self.config = config

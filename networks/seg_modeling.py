@@ -471,6 +471,8 @@ class FeatureReconstructor_Q1(nn.Module):
             out, _ = self.multihead_attn(out_xp, out_xx, out_xx)
             out = out.transpose(2, 1).reshape(1, 256, 8, 8) 
 
+        return out
+
 class PIPO_Model(nn.Module):
     def __init__(self, config, img_size=224, self_att=False, cross_att=True, num_classes=None, normalization_sign=True):
         super(PIPO_Model, self).__init__()
@@ -492,6 +494,13 @@ class PIPO_Model(nn.Module):
             'M2': nn.Parameter(torch.empty(1, prompt_channels, img_size, img_size)),
             'M3': nn.Parameter(torch.empty(1, prompt_channels, img_size, img_size)),
         })
+
+        self.prompt_feature = nn.ParameterDict({
+            'M1': nn.Parameter(torch.empty(1, 256, 8, 8)),
+            'M2': nn.Parameter(torch.empty(1, 256, 8, 8)),
+            'M3': nn.Parameter(torch.empty(1, 256, 8, 8)),
+        })
+
         self.Reconstructor_Q1 = ModalityReconstructor_Q1(in_channels=prompt_channels, base_channels=16)  # 模态重建器
         self.Reconstructor_Q2 = ModalityReconstructor_Q2(in_channels=prompt_channels, base_channels=16)  # 模态重建器
         self.Reconstructor_Q3 = FeatureReconstructor_Q1(input_dim=256, hidden_dim=512, output_dim=256)   # 特征重建器
@@ -501,6 +510,7 @@ class PIPO_Model(nn.Module):
 
         for key in self.prompt_input:
             nn.init.normal_(self.prompt_input[key], mean=0.0, std=0.02)
+            nn.init.normal_(self.prompt_feature[key], mean=0.0, std=0.02)
         
         #shared_encoder
         self.transformer = U_Res2D_enc(config)
@@ -690,7 +700,7 @@ class PIPO_Model(nn.Module):
             M1_ = M1
             M2_ = M2
             M3_ = M3
-        return M1_.squeeze(dim=0), M2_.squeeze(dim=0), M3_.squeeze(dim=0)
+        return M1_, M2_, M3_
 
     def forward(self, M1, M2, M3, mode_Type='[1,1,1]'):
         B, C, H, W = M1.shape
@@ -759,7 +769,7 @@ class PIPO_Model(nn.Module):
             # tsne_2D = TSNE(n_components=2, random_state=0)
             tsne_2D = TSNE(n_components=2, init='pca', random_state=0)
             vis_ft = torch.cat([X1_share_f_avg, X2_share_f_avg, X3_share_f_avg,
-                                X1_spec_f_avg, X2_spec_f_avg, X3_spec_f_avg])
+                                X1_spec_complete, X2_spec_complete, X3_spec_complete])
             vis_ft = vis_ft.view(vis_ft.shape[0], -1)
             tsne_points.append(vis_ft.cpu().detach().numpy())
             tsne_colors.append([0, 1, 2, 3, 4, 5])
@@ -779,9 +789,9 @@ class PIPO_Model(nn.Module):
         X1_fused_ft, X2_fused_ft, X3_fused_ft = self.fuse_modalities_per_sample(
                                             mode_Type,
                                             share_f_avg,
-                                            X1_share_f_avg, X1_spec_f_avg,
-                                            X2_share_f_avg, X2_spec_f_avg,
-                                            X3_share_f_avg, X3_spec_f_avg
+                                            X1_share_f_avg, X1_spec_complete,
+                                            X2_share_f_avg, X2_spec_complete,
+                                            X3_share_f_avg, X3_spec_complete
                                         )
 
          # attention注意力机制

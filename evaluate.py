@@ -78,7 +78,7 @@ def evaluate(args_dict,current_epochs, exp_name):
             'volume_path': '/data/fangdg/MyoPS++/process/cine_sa/test_vol_h5',
             'volume_path1': '/data/fangdg/MyoPS++/process/psir/test_vol_h5',
             'volume_path2': '/data/fangdg/MyoPS++/process/t2w/test_vol_h5',
-            'list_dir': '/home/fangdg/P2/FS2P_net/list',
+            'list_dir': '/home/fangdg/P2/PIPO_net/list',
             'num_classes': 4,
             'z_spacing': 1,
         },
@@ -93,7 +93,7 @@ def evaluate(args_dict,current_epochs, exp_name):
     args.is_pretrain = True
 
     experiment_name = f"{exp_name}"
-    snapshot_path = f"/home/fangdg/P2/FS2P_net/results/{dataset_name}_{args.name}_{args.img_size}_skip{args.n_skip}"
+    snapshot_path = f"/home/fangdg/P2/PIPO_net/results/{dataset_name}_{args.name}_{args.img_size}_skip{args.n_skip}"
     if args.max_epochs!= 30:
         snapshot_path += f'_epo{args.max_epochs}'
     snapshot_path += f'_bs{args.batch_size}'

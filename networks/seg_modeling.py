@@ -418,6 +418,59 @@ class ModalityReconstructor_Q2(nn.Module):
         out = self.decoder(x_fused)
         return out
 
+class FeatureReconstructor_Q1(nn.Module):
+    def __init__(self, input_dim=256, hidden_dim=512, output_dim=256):
+        super().__init__()
+        self.mlp_xx = nn.Sequential(
+            nn.Linear(input_dim*2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim),
+        )
+
+        self.mlp_xp = nn.Sequential(
+            nn.Linear(input_dim*2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim),
+        )
+
+        self.embed_dim = 256
+        self.multihead_attn = nn.MultiheadAttention(embed_dim=self.embed_dim, num_heads=8, dropout=0.1).cuda()
+
+    def forward(self, feat1, feat2, feat3, prompt, qs_value):
+        """
+        feat1, feat2, prompt: (1, 256, 8, 8)
+        mode: 'concat' or 'mean'
+        """
+        # flatten
+        f1 = feat1.flatten(2).transpose(1, 2)  # (1, 64, 256)
+        f2 = feat2.flatten(2).transpose(1, 2)
+        f3 = feat3.flatten(2).transpose(1, 2)
+        p = prompt.flatten(2).transpose(1, 2)
+
+        if qs_value == 1:
+            xp_all = torch.cat([f1, p],dim=-1)
+            out_xp = self.mlp_xp(xp_all)
+            xx_all = torch.cat([f2, f3], dim=-1)
+            out_xx = self.mlp_xx(xx_all)
+            out, _ = self.multihead_attn(out_xp, out_xx, out_xx)
+            out = out.transpose(2, 1).reshape(1, 256, 8, 8)   # 还原维度
+        
+        if qs_value == 2:
+            xp_all = torch.cat([f2, p],dim=-1)
+            out_xp = self.mlp_xp(xp_all)
+            xx_all = torch.cat([f1, f3], dim=-1)
+            out_xx = self.mlp_xx(xx_all)
+            out, _ = self.multihead_attn(out_xp, out_xx, out_xx)
+            out = out.transpose(2, 1).reshape(1, 256, 8, 8) 
+
+        if qs_value == 3:
+            xp_all = torch.cat([f3, p],dim=-1)
+            out_xp = self.mlp_xp(xp_all)
+            xx_all = torch.cat([f1, f2], dim=-1)
+            out_xx = self.mlp_xx(xx_all)
+            out, _ = self.multihead_attn(out_xp, out_xx, out_xx)
+            out = out.transpose(2, 1).reshape(1, 256, 8, 8) 
+
 class PIPO_Model(nn.Module):
     def __init__(self, config, img_size=224, self_att=False, cross_att=True, num_classes=None, normalization_sign=True):
         super(PIPO_Model, self).__init__()
@@ -441,6 +494,7 @@ class PIPO_Model(nn.Module):
         })
         self.Reconstructor_Q1 = ModalityReconstructor_Q1(in_channels=prompt_channels, base_channels=16)  # 模态重建器
         self.Reconstructor_Q2 = ModalityReconstructor_Q2(in_channels=prompt_channels, base_channels=16)  # 模态重建器
+        self.Reconstructor_Q3 = FeatureReconstructor_Q1(input_dim=256, hidden_dim=512, output_dim=256)   # 特征重建器
 
         self.num_classes = num_classes  #类别数        
         self.classifier = config.classifier  #定义分类器
@@ -601,7 +655,42 @@ class PIPO_Model(nn.Module):
             M3 = M3
 
         return M1, M2, M3
-
+    
+    def get_complete_feature(self, M1, M2, M3, prompts, missing_mode):
+        prompt_M1 = prompts['M1'].cuda()
+        prompt_M2 = prompts['M2'].cuda()
+        prompt_M3 = prompts['M3'].cuda()
+        missing_mode = missing_mode.tolist()
+        M1, M2, M3 = M1.unsqueeze(dim=0), M2.unsqueeze(dim=0), M3.unsqueeze(dim=0)
+        if missing_mode == [1, 0, 0]:
+            M1_ = M1
+            M2_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M2, 2)
+            M3_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M3, 3)
+        elif missing_mode == [0, 1 ,0]:
+            M2_ = M2
+            M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1, 1)
+            M3_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M3, 3)
+        elif missing_mode == [0, 0 ,1]:
+            M3_ = M3
+            M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1, 1)  
+            M2_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M2, 2)
+        elif missing_mode == [1, 1 ,0]:
+            M1_ = M1 
+            M2_ = M2
+            M3_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M3,3) 
+        elif missing_mode == [1, 0 ,1]:
+            M1_ = M1 
+            M3_ = M3
+            M2_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M2,2)
+        elif missing_mode == [0, 1 ,1]:
+            M2_ = M2
+            M3_ = M3
+            M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1,1)
+        else:
+            M1_ = M1
+            M2_ = M2
+            M3_ = M3
+        return M1_.squeeze(dim=0), M2_.squeeze(dim=0), M3_.squeeze(dim=0)
 
     def forward(self, M1, M2, M3, mode_Type='[1,1,1]'):
         B, C, H, W = M1.shape
@@ -642,6 +731,21 @@ class PIPO_Model(nn.Module):
         X1_spec_f_avg, X1_spec_f, X1_spec_features = self.transformer1(M1_complete) #x在不同空洞卷积后的平均输出以及最后输出x的avgpooling、以及各层的特征
         X2_spec_f_avg, X2_spec_f, X2_spec_features = self.transformer2(M2_complete)
         X3_spec_f_avg, X3_spec_f, X3_spec_features = self.transformer3(M3_complete)
+
+        X1_spec_complete, X2_spec_complete, X3_spec_complete = None, None, None
+        # 缺失重建
+        for i in range(0, mode_Type.size(0)):
+            m_1_temp, m_2_temp, m_3_temp = self.get_complete_feature(
+                X1_spec_f_avg[i], X2_spec_f_avg[i], X3_spec_f_avg[i], self.prompt_feature, mode_Type[i],
+            )
+            if X1_spec_complete is None:
+                X1_spec_complete = m_1_temp
+                X2_spec_complete = m_2_temp
+                X3_spec_complete = m_3_temp
+            else:
+                X1_spec_complete = torch.cat((X1_spec_complete, m_1_temp), dim=0)
+                X2_spec_complete = torch.cat((X2_spec_complete, m_2_temp), dim=0)
+                X3_spec_complete = torch.cat((X3_spec_complete, m_3_temp), dim=0)
 
         mode_Type = torch.ones_like(mode_Type)
         share_f_avg = self.compute_shared_features(mode_Type, X1_share_f_avg, X2_share_f_avg, X3_share_f_avg)

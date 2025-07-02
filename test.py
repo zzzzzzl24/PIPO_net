@@ -39,7 +39,7 @@ parser.add_argument('--test_save_dir', type=str, default='/home/fangdg/P2/PIPO_n
 parser.add_argument('--deterministic', type=int,  default=1, help='whether use deterministic training')
 parser.add_argument('--base_lr', type=float,  default=0.001, help='segmentation network learning rate')
 parser.add_argument('--seed', type=int, default=1234, help='random seed')
-parser.add_argument("--exp_name", type=str, default="prompt_input_01")
+parser.add_argument("--exp_name", type=str, default="pipo_01")
 parser.add_argument("--mode_type", type=str, default="6", help="mode type, 0, 1, 2, 3, 4, 5, 6")
 parser.add_argument("--only_one", action="store_true", default=False, help="only one mode inference, default is False")
 args = parser.parse_args()

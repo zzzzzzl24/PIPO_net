@@ -43,7 +43,7 @@ parser.add_argument('--name', type=str,
                     default='R50', help='model name')
 parser.add_argument("--mode_type", type=str, default="random", help="mode type, random, 0, 1, 2, 3, 4, 5, 6")
 parser.add_argument("--eval_mode", type=str, default="all", help="mode type, random, 0, 1, 2, 3, 4, 5, 6")
-parser.add_argument("--exp_name", type=str, default="prompt_input_01")
+parser.add_argument("--exp_name", type=str, default="pipo_01")
 parser.add_argument("--train_only", action="store_true",default=False, help="train only, no evaluation")
 
 

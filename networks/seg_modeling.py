@@ -836,19 +836,19 @@ class PIPO_Model(nn.Module):
 
         # decoder部分
         features_fusion_share = []
-        features_fusion_spec = []
-        features_fusion = []
+        # features_fusion_spec = []
+        # features_fusion = []
         
         for i in range(1, len(X1_share_features)):
             features_fusion_share.append(self.feature_fusion[i-1](X1_share_features[i], X2_share_features[i], X3_share_features[i]))
         
-        for i in range(1, len(X1_spec_features)):
-            features_fusion_spec.append(self.feature_fusion2[i-1](X1_spec_features[i], X2_spec_features[i], X3_spec_features[i]))
+        # for i in range(1, len(X1_spec_features)):
+        #     features_fusion_spec.append(self.feature_fusion2[i-1](X1_spec_features[i], X2_spec_features[i], X3_spec_features[i]))
 
-        for i in range(0, len(features_fusion_share)):
-            features_fusion.append(self.feature_fusion3[i](features_fusion_share[i], features_fusion_spec[i]))
+        # for i in range(0, len(features_fusion_share)):
+        #     features_fusion.append(self.feature_fusion3[i](features_fusion_share[i], features_fusion_spec[i]))
 
-        output = self.decoder(out_ft, features_fusion)
+        output = self.decoder(out_ft, features_fusion_share)
         output = self.segmentation_head(output)
         _spec_f = spec_f.squeeze()
         spec_logits = self.dom_classifier(_spec_f)

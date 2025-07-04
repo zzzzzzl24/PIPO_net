@@ -6,6 +6,7 @@ import torch.nn as nn
 import SimpleITK as sitk
 import torch.nn.functional as F
 import re
+import csv
 
 class SoftmaxWeightedLoss(nn.Module):
     def __init__(self, num_cls=4):
@@ -239,3 +240,55 @@ def filter_txt_file(input_path, output_path):
     # 写入到新文件
     with open(output_path, 'w', encoding='utf-8') as f:
         f.writelines(filtered_lines)
+
+def extract_scar_edema_metrics_to_csv(input_txt_path, output_csv_path):
+    """
+    从.txt文件中提取 Scar（class 2）和 Edema（class 4）的 mean_dice 和 mean_hd95 指标，
+    并保存为指定格式的.csv文件。
+
+    参数:
+        input_txt_path (str): 输入的txt文件路径
+        output_csv_path (str): 输出的csv文件路径
+    """
+    results = []
+    current_modality = None
+    scar_dice = None
+    scar_hd95 = None
+    edema_dice = None
+    edema_hd95 = None
+
+    with open(input_txt_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("Mean class"):
+                match = re.match(r"Mean class (\d+) mean_dice ([\d.]+) mean_hd95 ([\d.]+)", line)
+                if match:
+                    cls = int(match.group(1))
+                    dice = float(match.group(2))
+                    hd95 = float(match.group(3))
+                    if cls == 2:  # Scar
+                        scar_dice = dice
+                        scar_hd95 = hd95
+                    elif cls == 4:  # Edema
+                        edema_dice = dice
+                        edema_hd95 = hd95
+            else:
+                # 新模态开始时，保存上一组数据（如果完整）
+                if current_modality and scar_dice is not None and edema_dice is not None:
+                    results.append([current_modality, scar_dice, scar_hd95, edema_dice, edema_hd95])
+                current_modality = line.strip()
+                scar_dice = scar_hd95 = edema_dice = edema_hd95 = None
+
+    # 最后一组
+    if current_modality and scar_dice is not None and edema_dice is not None:
+        results.append([current_modality, scar_dice, scar_hd95, edema_dice, edema_hd95])
+
+    # 写入CSV
+    with open(output_csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Modality", "Scar_DICE", "Scar_HD50", "Edema_DICE", "Edema_HD50"])
+        writer.writerows(results)
+
+    print(f"转换完成，结果已保存到：{output_csv_path}")

@@ -10,7 +10,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from datasets.dataset_MyoPS import MyoPS_dataset
-from utils import test_single_volume, filter_txt_file
+from utils import test_single_volume, filter_txt_file, extract_scar_edema_metrics_to_csv
 from networks.seg_modeling import PIPO_Model as Seg_net
 from networks.seg_modeling import CONFIGS as CONFIGS_Seg
 from collections import OrderedDict
@@ -187,3 +187,4 @@ if __name__ == "__main__":
         inference(args, net, test_save_path)
 
     filter_txt_file(log_folder + '/'+snapshot_name+".txt", folder + '/'+snapshot_name+".txt")
+    extract_scar_edema_metrics_to_csv(folder + '/'+snapshot_name+".txt", folder + '/'+snapshot_name+".csv")

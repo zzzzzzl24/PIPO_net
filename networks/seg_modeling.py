@@ -307,37 +307,36 @@ class ModalityReconstructor_Q1(nn.Module):
             nn.ReLU()
         )
 
-        self.prompt_proj1 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, padding=1)
-        self.prompt_proj2 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, padding=1)
-        self.prompt_proj3 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, padding=1)
+        self.prompt_proj1 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, stride=4, padding=1)
+        self.prompt_proj2 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, stride=4, padding=1)
+        self.prompt_proj3 = nn.Conv2d(in_channels, base_channels * 2, kernel_size=3, stride=4, padding=1)
 
         self.fusion = nn.Sequential(
             nn.Conv2d(base_channels * 6, base_channels * 4, 3, padding=1),
             nn.ReLU(),
             nn.Conv2d(base_channels * 4, base_channels * 2, 3, padding=1),
         )
-
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(base_channels * 2, base_channels, 3, stride=2, padding=1, output_padding=1),  # ↑ H/2
+            nn.ConvTranspose2d(base_channels * 2, base_channels, kernel_size=4, stride=2, padding=1),  # H/2
             nn.ReLU(),
-            nn.ConvTranspose2d(base_channels, in_channels, 3, stride=2, padding=1, output_padding=1),  # ↑ H
+            nn.ConvTranspose2d(base_channels, in_channels, kernel_size=4, stride=2, padding=1),    # H
             nn.Sigmoid()
         )
 
     def forward(self, x1, x2, x3, mode):
         # 下采样后融合
         if mode == [0, 1, 1]:
-            x1_ = self.prompt_proj1(F.interpolate(x1, scale_factor=0.25, mode='bilinear'))
+            x1_ = self.prompt_proj1(x1)
             x2_ = self.encoder(x2)
             x3_ = self.encoder(x3)
         elif mode == [1, 0, 1]:
             x1_ = self.encoder(x1)
-            x2_ = self.prompt_proj2(F.interpolate(x2, scale_factor=0.25, mode='bilinear'))
+            x2_ = self.prompt_proj2(x2)
             x3_ = self.encoder(x3)
         elif mode == [1, 1, 0]:
             x1_ = self.encoder(x1)
             x2_ = self.encoder(x2)
-            x3_ = self.prompt_proj3(F.interpolate(x3, scale_factor=0.25, mode='bilinear'))
+            x3_ = self.prompt_proj3(x3)
         else:
             raise NotImplementedError("不支持的mode")
 
@@ -434,7 +433,7 @@ class FeatureReconstructor_Q1(nn.Module):
         )
 
         self.embed_dim = 256
-        self.multihead_attn = nn.MultiheadAttention(embed_dim=self.embed_dim, num_heads=8, dropout=0.1).cuda()
+        self.multihead_attn = nn.MultiheadAttention(embed_dim=self.embed_dim, num_heads=16, dropout=0.1).cuda()
 
     def forward(self, feat1, feat2, feat3, prompt, qs_value):
         """
@@ -469,7 +468,7 @@ class FeatureReconstructor_Q1(nn.Module):
             xx_all = torch.cat([f1, f2], dim=-1)
             out_xx = self.mlp_xx(xx_all)
             out, _ = self.multihead_attn(out_xp, out_xx, out_xx)
-            out = out.transpose(2, 1).reshape(1, 256, 8, 8) 
+            out = out.transpose(2, 1).reshape(1, 256, 8, 8)
 
         return out
 
@@ -665,42 +664,72 @@ class PIPO_Model(nn.Module):
             M3 = M3
 
         return M1, M2, M3
-    
+
     def get_complete_feature(self, M1, M2, M3, prompts, missing_mode):
         prompt_M1 = prompts['M1'].cuda()
         prompt_M2 = prompts['M2'].cuda()
         prompt_M3 = prompts['M3'].cuda()
         missing_mode = missing_mode.tolist()
         M1, M2, M3 = M1.unsqueeze(dim=0), M2.unsqueeze(dim=0), M3.unsqueeze(dim=0)
+        
         if missing_mode == [1, 0, 0]:
             M1_ = M1
             M2_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M2, 2)
             M3_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M3, 3)
-        elif missing_mode == [0, 1 ,0]:
+            loss = self.compute_feature_diff_loss(M2_, M1_, M3_) + self.compute_feature_diff_loss(M3_, M1_, M2_)
+    
+        elif missing_mode == [0, 1, 0]:
             M2_ = M2
             M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1, 1)
             M3_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M3, 3)
-        elif missing_mode == [0, 0 ,1]:
+            loss = self.compute_feature_diff_loss(M1_, M2_, M3_) + self.compute_feature_diff_loss(M3_, M1_, M2_)
+        
+        elif missing_mode == [0, 0, 1]:
             M3_ = M3
-            M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1, 1)  
+            M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1, 1)
             M2_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M2, 2)
-        elif missing_mode == [1, 1 ,0]:
-            M1_ = M1 
-            M2_ = M2
-            M3_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M3,3) 
-        elif missing_mode == [1, 0 ,1]:
-            M1_ = M1 
-            M3_ = M3
-            M2_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M2,2)
-        elif missing_mode == [0, 1 ,1]:
-            M2_ = M2
-            M3_ = M3
-            M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1,1)
-        else:
+            loss = self.compute_feature_diff_loss(M1_, M2_, M3_) + self.compute_feature_diff_loss(M2_, M1_, M3_)
+        
+        elif missing_mode == [1, 1, 0]:
             M1_ = M1
             M2_ = M2
+            M3_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M3, 3)
+            loss = self.compute_feature_diff_loss(M3_, M1_, M2_)
+        
+        elif missing_mode == [1, 0, 1]:
+            M1_ = M1
             M3_ = M3
-        return M1_, M2_, M3_
+            M2_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M2, 2)
+            loss = self.compute_feature_diff_loss(M2_, M1_, M3_)
+        
+        elif missing_mode == [0, 1, 1]:
+            M2_ = M2
+            M3_ = M3
+            M1_ = self.Reconstructor_Q3(M1, M2, M3, prompt_M1, 1)
+            loss = self.compute_feature_diff_loss(M1_, M2_, M3_)
+
+        else:
+            M1_, M2_, M3_ = M1, M2, M3
+            loss = torch.tensor(0.0, device=M1.device)
+
+        return M1_, M2_, M3_, loss
+
+    def compute_feature_diff_loss(self, recon_feat, feat_a, feat_b):
+        """
+        计算重建特征 recon_feat 与两个已有模态特征的 cosine 相似度，并取平方和为 loss, 鼓励其与已有模态方向接近。
+        """
+        # 规范化特征（避免尺度问题）
+        recon_feat = F.normalize(recon_feat, dim=1)
+        feat_a = F.normalize(feat_a, dim=1)
+        feat_b = F.normalize(feat_b, dim=1)
+
+        # 计算 Cosine 相似度
+        sim_a = F.cosine_similarity(recon_feat, feat_a, dim=1)
+        sim_b = F.cosine_similarity(recon_feat, feat_b, dim=1)
+
+        # 耦合损失：希望两个相似度都尽可能大
+        loss = torch.mean((1 - sim_a) ** 2 + (1 - sim_b) ** 2)
+        return loss
 
     def forward(self, M1, M2, M3, mode_Type='[1,1,1]'):
         B, C, H, W = M1.shape
@@ -745,17 +774,21 @@ class PIPO_Model(nn.Module):
         X1_spec_complete, X2_spec_complete, X3_spec_complete = None, None, None
         # 缺失重建
         for i in range(0, mode_Type.size(0)):
-            m_1_temp, m_2_temp, m_3_temp = self.get_complete_feature(
+            m_1_temp, m_2_temp, m_3_temp, loss = self.get_complete_feature(
                 X1_spec_f_avg[i], X2_spec_f_avg[i], X3_spec_f_avg[i], self.prompt_feature, mode_Type[i],
             )
             if X1_spec_complete is None:
                 X1_spec_complete = m_1_temp
                 X2_spec_complete = m_2_temp
                 X3_spec_complete = m_3_temp
+                loss_cosine = loss
             else:
                 X1_spec_complete = torch.cat((X1_spec_complete, m_1_temp), dim=0)
                 X2_spec_complete = torch.cat((X2_spec_complete, m_2_temp), dim=0)
                 X3_spec_complete = torch.cat((X3_spec_complete, m_3_temp), dim=0)
+                loss_cosine += loss
+                
+        loss_cosine = loss_cosine / B
 
         mode_Type = torch.ones_like(mode_Type)
         share_f_avg = self.compute_shared_features(mode_Type, X1_share_f_avg, X2_share_f_avg, X3_share_f_avg)
@@ -855,7 +888,7 @@ class PIPO_Model(nn.Module):
         spec_logits = spec_logits.transpose(0, 1) 
         share_f = share_f.transpose(0, 1)
         if self.training:
-            return output, share_f, spec_logits, mode_Type
+            return output, share_f, spec_logits, mode_Type, loss_cosine
         else:
             return output
     

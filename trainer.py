@@ -58,11 +58,11 @@ def trainer_MyoPS(args, model, snapshot_path):
         for i_batch, sampled_batch in enumerate(trainloader):
             image_batch, image1_batch, image2_batch, label_batch, mode_Type = sampled_batch['image'], sampled_batch['image1'], sampled_batch['image2'], sampled_batch['label'], sampled_batch['mode']
             image_batch, image1_batch, image2_batch, label_batch, mode_Type = image_batch.cuda(), image1_batch.cuda(), image2_batch.cuda(), label_batch.cuda(), mode_Type.cuda()
-            out_pre, share_f, spec_logits, mode_Type = model(image_batch, image1_batch, image2_batch, mode_Type = mode_Type)
+            out_pre, share_f, spec_logits, mode_Type, loss_consine = model(image_batch, image1_batch, image2_batch, mode_Type = mode_Type)
             
             out_cross_loss = ce_loss(out_pre, label_batch)
             out_dice_loss = dice_loss(out_pre, label_batch, softmax=True)
-            loss = 0.5* out_cross_loss + 0.5* out_dice_loss
+            loss = 0.5* out_cross_loss + 0.5* out_dice_loss + 0.05 *loss_consine
             
             dis_shared_loss, dis_spec_loss = Compute_multi_modal_loss(
                                                 share_f, spec_logits, mode_Type,

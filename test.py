@@ -118,14 +118,14 @@ if __name__ == "__main__":
     
     dataset_name = args.dataset
     if args.exp_name == "" or args.exp_name is None:
-        args.exp_name = f"response_fold_{args.fold}_run_{args.run_id}_MyoPS++"
+        args.exp_name = f"response_fold_{args.fold}_run_{args.run_id}"
     dataset_config = {
         'QS_Seg_MyoPS': {
             'Dataset': MyoPS_dataset,
-            'volume_path': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/cine_sa/test_vol_h5',
-            'volume_path1': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/psir/test_vol_h5',
-            'volume_path2': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/t2w/test_vol_h5',
-            'list_dir': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/list',
+            'volume_path': f'/data/fangdg/P2/MyoPS380/process/fold_{args.fold}/cine_sa/test_vol_h5',
+            'volume_path1': f'/data/fangdg/P2/MyoPS380/process/fold_{args.fold}/psir/test_vol_h5',
+            'volume_path2': f'/data/fangdg/P2/MyoPS380/process/fold_{args.fold}/t2w/test_vol_h5',
+            'list_dir': f'/data/fangdg/P2/MyoPS380/process/fold_{args.fold}/list',
             'num_classes': 4,
             'z_spacing': 1,
         },

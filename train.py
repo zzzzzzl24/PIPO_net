@@ -14,12 +14,14 @@ start = timeit.default_timer()
 
 
 parser = argparse.ArgumentParser(description="基于傅里叶特征解耦与Prompt学习的多模态心肌病理分割")
+parser.add_argument('--fold', type=int, default=0, help='fold id: 0..4')
+parser.add_argument('--run_id', type=int, default=0, help='repeat id within a fold: 0..4')
 parser.add_argument('--root_path', type=str,
-                    default='/data/fangdg/MyoPS++/process/cine_sa/train_npz', help='root dir for data')
+                    default='', help='root dir for data')
 parser.add_argument('--dataset', type=str,
                     default='QS_Seg_MyoPS', help='experiment_name')
 parser.add_argument('--list_dir', type=str,
-                    default='/home/fangdg/P2/PIPO/list', help='list dir')
+                    default='', help='list dir')
 parser.add_argument('--num_classes', type=int,
                     default=4, help='output channel of network')
 parser.add_argument('--max_iterations', type=int,
@@ -43,8 +45,8 @@ parser.add_argument('--name', type=str,
                     default='R50', help='model name')
 parser.add_argument("--mode_type", type=str, default="random", help="mode type, random, 0, 1, 2, 3, 4, 5, 6")
 parser.add_argument("--eval_mode", type=str, default="all", help="mode type, random, 0, 1, 2, 3, 4, 5, 6")
-parser.add_argument("--exp_name", type=str, default="PIPO_V5_01")
-parser.add_argument("--train_only", action="store_true",default=False, help="train only, no evaluation")
+parser.add_argument("--exp_name", type=str, default="")
+parser.add_argument("--train_only", action="store_true",default=True, help="train only, no evaluation")
 
 
 args = parser.parse_args()
@@ -62,12 +64,14 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     dataset_name = args.dataset
+    if args.exp_name == "" or args.exp_name is None:
+        args.exp_name = f"response_fold_{args.fold}_run_{args.run_id}_MyoPS++"
     dataset_config = {
         'QS_Seg_MyoPS': {
-            'root_path': '/data/fangdg/MyoPS++/process/cine_sa/train_npz',
-            'root_path1':'/data/fangdg/MyoPS++/process/psir/train_npz',
-            'root_path2':'/data/fangdg/MyoPS++/process/t2w/train_npz',
-            'list_dir': '/home/fangdg/P2/PIPO_net/list',
+            'root_path': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/cine_sa/train_npz',
+            'root_path1':f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/psir/train_npz',
+            'root_path2':f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/t2w/train_npz',
+            'list_dir': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/list',
             'num_classes': 4,
         },
     }

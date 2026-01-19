@@ -16,14 +16,16 @@ from networks.seg_modeling import CONFIGS as CONFIGS_Seg
 from collections import OrderedDict
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--fold', type=int, default=0, help='fold id: 0..4')
+parser.add_argument('--run_id', type=int, default=0, help='repeat id: 0..4')
 parser.add_argument('--volume_path', type=str,
-                    default='/data/fangdg/MyoPS++/process/cine_sa/test_vol_h5', help='root dir for validation volume data')  # for acdc volume_path=root_dir
+                    default='', help='root dir for validation volume data')  # for acdc volume_path=root_dir
 parser.add_argument('--dataset', type=str,
                     default='QS_Seg_MyoPS', help='experiment_name')
 parser.add_argument('--num_classes', type=int,
                     default=4, help='output channel of network')
 parser.add_argument('--list_dir', type=str,
-                    default='/home/fangdg/P2/PIPO_net/list', help='list dir')
+                    default='', help='list dir')
 parser.add_argument('--n_gpu', type=int, default=1, help='total gpu')
 parser.add_argument('--max_iterations', type=int,default=30000, help='maximum epoch number to train')
 parser.add_argument('--max_epochs', type=int, default=300, help='maximum epoch number to train')
@@ -39,7 +41,7 @@ parser.add_argument('--test_save_dir', type=str, default='/home/fangdg/P2/PIPO_n
 parser.add_argument('--deterministic', type=int,  default=1, help='whether use deterministic training')
 parser.add_argument('--base_lr', type=float,  default=0.001, help='segmentation network learning rate')
 parser.add_argument('--seed', type=int, default=1234, help='random seed')
-parser.add_argument("--exp_name", type=str, default="PIPO_V5_01")
+parser.add_argument("--exp_name", type=str, default="")
 parser.add_argument("--mode_type", type=str, default="6", help="mode type, 0, 1, 2, 3, 4, 5, 6")
 parser.add_argument("--only_one", action="store_true", default=False, help="only one mode inference, default is False")
 args = parser.parse_args()
@@ -115,13 +117,15 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(args.seed)
     
     dataset_name = args.dataset
+    if args.exp_name == "" or args.exp_name is None:
+        args.exp_name = f"response_fold_{args.fold}_run_{args.run_id}_MyoPS++"
     dataset_config = {
         'QS_Seg_MyoPS': {
             'Dataset': MyoPS_dataset,
-            'volume_path': '/data/fangdg/MyoPS++/process/cine_sa/test_vol_h5',
-            'volume_path1': '/data/fangdg/MyoPS++/process/psir/test_vol_h5',
-            'volume_path2': '/data/fangdg/MyoPS++/process/t2w/test_vol_h5',
-            'list_dir': '/home/fangdg/P2/PIPO_net/list',
+            'volume_path': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/cine_sa/test_vol_h5',
+            'volume_path1': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/psir/test_vol_h5',
+            'volume_path2': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/t2w/test_vol_h5',
+            'list_dir': f'/data/fangdg/P2/MyoPS++/process/fold_{args.fold}/list',
             'num_classes': 4,
             'z_spacing': 1,
         },

@@ -16,8 +16,8 @@ from networks.seg_modeling import CONFIGS as CONFIGS_Seg
 from collections import OrderedDict
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--fold', type=int, default=0, help='fold id: 0..4')
-parser.add_argument('--run_id', type=int, default=0, help='repeat id: 0..4')
+parser.add_argument('--fold', type=int, default="", help='fold id: 0..4')
+parser.add_argument('--run_id', type=int, default="", help='repeat id within a fold: 0..4')
 parser.add_argument('--volume_path', type=str,
                     default='', help='root dir for validation volume data')  # for acdc volume_path=root_dir
 parser.add_argument('--dataset', type=str,
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     config.n_skip = args.n_skip
     net = Seg_net(config, img_size=args.img_size, num_classes=config.n_classes).cuda()
 
-    snapshot = "{}/best_model.pth".format(snapshot_path)
+    snapshot = "{}/epoch_299.pth".format(snapshot_path)
     checkpoint = torch.load(snapshot)
     new_state_dict = OrderedDict()
     if args.n_gpu > 1:
